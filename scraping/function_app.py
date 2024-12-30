@@ -3,14 +3,17 @@ import azure.functions as func
 from datetime import datetime
 from scraper import Scraper
 import pandas as pd
+import random
+from time import sleep
 
 app = func.FunctionApp()
 
 
 @app.timer_trigger(
-    schedule="0 0 */3 * * *", arg_name="myTimer", run_on_startup=True, use_monitor=False
+    schedule="0 15 */3 * * *", arg_name="myTimer", run_on_startup=True, use_monitor=True
 )
 def ScraperFunction(myTimer: func.TimerRequest) -> None:
+    output_file = "availabilities_data.csv"
     utc_timestamp = datetime.utcnow().replace(tzinfo=None)
     if myTimer.past_due:
         logging.info("The timer is past due!")
@@ -29,6 +32,8 @@ def ScraperFunction(myTimer: func.TimerRequest) -> None:
             logging.info(f"Scraper executed successfully for station {station_id}.")
         except Exception as e:
             logging.error(f"Error during scraping: {str(e)}")
-    scraper.azure_blob_client.upload_blob(
-        df_new_data, "data", "availabilities_data.csv"
-    )
+        sleep_time = random.randint(1, 5)
+        sleep(sleep_time)
+        logging.info(f"Slep for {sleep_time} seconds.")
+
+    scraper.azure_blob_client.upload_blob(df_new_data, "data", output_file)
