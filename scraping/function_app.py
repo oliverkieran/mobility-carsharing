@@ -32,8 +32,9 @@ def ScraperFunction(myTimer: func.TimerRequest) -> None:
             logging.info(f"Scraper executed successfully for station {station_id}.")
         except Exception as e:
             logging.error(f"Error during scraping: {str(e)}")
-        sleep_time = random.randint(1, 5)
-        sleep(sleep_time)
-        logging.info(f"Slep for {sleep_time} seconds.")
+        if i < len(interesting_station_ids) - 1:
+            sleep_time = random.randint(1, 5)
+            sleep(sleep_time)
+            logging.info(f"Slep for {sleep_time} seconds.")
 
     scraper.azure_blob_client.upload_blob(df_new_data, "data", output_file)
