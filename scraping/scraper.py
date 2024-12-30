@@ -1,17 +1,30 @@
 import datetime
 import requests
 import json
-import pytz
-import pandas as pd
 import os
+import pandas as pd
+import pytz
+from dotenv import load_dotenv
+
+from save import AzureBlobStorage
 
 
 class Scraper:
     def __init__(self, base_url: str, station_id: str, output_dir: str = "./data/raw"):
+        load_dotenv()
         self.base_url = base_url
         self.station_id = station_id
         self.output_dir = output_dir
         self.rental_duration = datetime.timedelta(hours=3)
+        azure_blob_connection_string = os.getenv("AZURE_BLOB_CONNECTION_STRING")
+        if not azure_blob_connection_string:
+            raise ValueError(
+                "AZURE_BLOB_CONNECTION_STRING environment variable not set"
+            )
+
+        self.azure_blob_client = AzureBlobStorage(azure_blob_connection_string)
+        if self.azure_blob_client:
+            print("Azure Blob Storage client created successfully.")
 
     def round_to_next_half_hour(self, dt: datetime.datetime) -> datetime.datetime:
         print("Original datetime:", dt)
@@ -109,7 +122,9 @@ class Scraper:
             print(f"An error occurred: {e}")
             return None
 
-    def prepare_data_for_file(self, data: dict, dt: datetime.datetime):
+    def prepare_data_for_file(
+        self, data: dict, dt: datetime.datetime, fetch_old_data=True
+    ):
         # save vehicle information in pandas dataframe
         df_vehicle_availabilities = pd.json_normalize(data, "vehicleAvailabilities")
         df_vehicle_availabilities["timestamp.from"] = dt.isoformat(
@@ -118,24 +133,20 @@ class Scraper:
         df_vehicle_availabilities["timestamp.to"] = (
             dt + self.rental_duration
         ).isoformat(timespec="milliseconds")
-        return df_vehicle_availabilities
 
-    def save_data(self, df_data):
-        if not os.path.exists(self.output_dir):
-            os.makedirs(self.output_dir)
-
-        if not os.path.exists(f"{self.output_dir}/availabilities_data.csv"):
-            df_data.to_csv(f"{self.output_dir}/availabilities_data.csv", index=False)
-        else:
-            df_data.to_csv(
-                f"{self.output_dir}/availabilities_data.csv",
-                mode="a",
-                index=False,
-                header=False,
+        if fetch_old_data:
+            # Load previous data from azure blob storage
+            df_previous_data = self.azure_blob_client.download_blob(
+                "data", "availabilities_data.csv"
+            )
+            # Concatenate previous data with new data
+            df_vehicle_availabilities = pd.concat(
+                [df_previous_data, df_vehicle_availabilities]
             )
 
-    def run(self):
-        interesting_station_ids = [69951, 80456, 80815]
+        return df_vehicle_availabilities
+
+    def run(self, fetch_old_data=True):
         dt = datetime.datetime.now(pytz.timezone("Europe/Zurich")) + datetime.timedelta(
             hours=0
         )
@@ -143,8 +154,13 @@ class Scraper:
         result = self.fetch_data(rounded_dt)
         if result:
             print(result)
-            df_prepared_data = self.prepare_data_for_file(result, rounded_dt)
-            self.save_data(df_prepared_data)
+            df_prepared_data = self.prepare_data_for_file(
+                result, rounded_dt, fetch_old_data
+            )
+            # self.azure_blob_client.upload_blob(
+            #     df_prepared_data, "data", "availabilities_data.csv"
+            # )
+            return df_prepared_data
 
 
 if __name__ == "__main__":
